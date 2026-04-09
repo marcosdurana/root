@@ -461,7 +461,7 @@ export default function App() {
                         e.currentTarget.style.display = "none";
                       }}
                     />
-                    <div className="brand-text">{header.empresa || "Empresa"}</div>
+                    <!--div className="brand-text">{header.empresa || "Empresa"}</div-->
                   </div>
 
                   <div className="sheet-title">{header.listaTitulo}</div>
