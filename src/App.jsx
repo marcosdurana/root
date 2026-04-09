@@ -4,11 +4,10 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import "./styles.css";
 
-const SAMPLE_PRODUCTS = [
-  { producto: "MAIZ 7272 VT3P RIB C5", clase: "", descripcion: "", dosis: "", aer_q: "", dc_q: "", contado_30: "", canje_julio: "", usd_julio: "" },
-  { producto: "DK7210 RR2 SD SPC", clase: "", descripcion: "", dosis: "", aer_q: "", dc_q: "", contado_30: "", canje_julio: "", usd_julio: "" },
-  { producto: "Maíz DK 7210 RR2 SD SPR", clase: "", descripcion: "", dosis: "", aer_q: "", dc_q: "", contado_30: "", canje_julio: "", usd_julio: "" },
-];
+const FIXED_SHEET_URL =
+  "https://docs.google.com/spreadsheets/d/1WcC85QL5CvA6gPLdsNOm1LX5BKPVPwBj3k5duzhbJGw/edit?usp=sharing";
+
+const LOGO_URL = "/logo-quemu.png";
 
 const EMPTY_MANUAL = {
   producto: "",
@@ -83,6 +82,11 @@ function parseCsvText(text) {
   });
 }
 
+function looksLikeHeaderRow(value) {
+  const lower = safeText(value).toLowerCase();
+  return ["producto", "articulo", "artículo", "nombre"].includes(lower);
+}
+
 function normalizeImportedRows(rawRows) {
   const rows = (rawRows || [])
     .map((row) => {
@@ -101,42 +105,51 @@ function normalizeImportedRows(rawRows) {
     })
     .filter((item) => item.producto);
 
-  if (rows.length > 0) {
-    const header = rows[0].producto.toLowerCase();
-    if (["producto", "articulo", "artículo", "nombre"].includes(header)) {
-      return rows.slice(1);
-    }
+  if (rows.length > 0 && looksLikeHeaderRow(rows[0].producto)) {
+    return rows.slice(1);
   }
 
   return rows;
 }
 
-function Field({ label, children }) {
+function loadImageAsDataUrl(url) {
+  return fetch(url)
+    .then((response) => response.blob())
+    .then(
+      (blob) =>
+        new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        })
+    );
+}
+
+function Field({ label, children, className = "" }) {
   return (
-    <div className="field">
+    <div className={`field ${className}`}>
       <label className="label">{label}</label>
       {children}
     </div>
   );
 }
 
-function SectionCard({ title, children, actions }) {
+function Card({ title, actions, children }) {
   return (
-    <div className="card">
+    <section className="card">
       <div className="card-header">
         <h2>{title}</h2>
         {actions ? <div className="card-actions">{actions}</div> : null}
       </div>
       <div className="card-body">{children}</div>
-    </div>
+    </section>
   );
 }
 
 export default function App() {
-  const [sheetUrl, setSheetUrl] = useState("");
   const [loadingSheet, setLoadingSheet] = useState(false);
-  const [sheetStatus, setSheetStatus] = useState("Usando artículos de ejemplo.");
-  const [products, setProducts] = useState(SAMPLE_PRODUCTS);
+  const [sheetStatus, setSheetStatus] = useState("Cargando base de artículos...");
+  const [products, setProducts] = useState([]);
   const [items, setItems] = useState([]);
   const [manual, setManual] = useState(EMPTY_MANUAL);
   const [header, setHeader] = useState({
@@ -163,26 +176,24 @@ export default function App() {
   }, [manual.producto, productOptions]);
 
   useEffect(() => {
-    if (!sheetUrl.trim()) return;
-    const timeout = window.setTimeout(() => {
-      void loadFromSheet();
-    }, 500);
-    return () => window.clearTimeout(timeout);
-  }, [sheetUrl]);
+    void loadFromSheet();
+  }, []);
 
   async function loadFromSheet() {
-    const csvUrl = buildGoogleSheetCsvUrl(sheetUrl);
-    if (!csvUrl) {
-      setSheetStatus("Pegá primero el link de Google Sheets.");
-      return;
-    }
+    const csvUrl = buildGoogleSheetCsvUrl(FIXED_SHEET_URL);
 
     setLoadingSheet(true);
-    setSheetStatus("Leyendo artículos desde Google Sheets...");
+    setSheetStatus("Cargando base de artículos...");
 
     try {
-      const response = await fetch(csvUrl, { method: "GET", redirect: "follow" });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const response = await fetch(csvUrl, {
+        method: "GET",
+        redirect: "follow",
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
       const csvText = await response.text();
       const parsed = await parseCsvText(csvText);
@@ -190,13 +201,13 @@ export default function App() {
 
       if (importedProducts.length > 0) {
         setProducts(importedProducts);
-        setSheetStatus(`${importedProducts.length} artículos cargados desde Google Sheets.`);
+        setSheetStatus(`${importedProducts.length} artículos cargados.`);
       } else {
-        setSheetStatus("La hoja se pudo leer, pero no se encontraron artículos en la columna A.");
+        setSheetStatus("No se encontraron artículos en la columna A.");
       }
     } catch (error) {
-      console.error(error);
-      setSheetStatus("No se pudo leer la hoja. Verificá que sea pública y que el gid sea correcto.");
+      console.error("Error leyendo Google Sheets:", error);
+      setSheetStatus("No se pudo cargar la base de artículos.");
     } finally {
       setLoadingSheet(false);
     }
@@ -235,37 +246,54 @@ export default function App() {
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)));
   }
 
-  function resetSample() {
-    setProducts(SAMPLE_PRODUCTS);
-    setItems([]);
-    setManual(EMPTY_MANUAL);
-    setSheetStatus("Usando artículos de ejemplo.");
-  }
-
-  function exportPdf() {
+  async function exportPdf() {
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
 
+    try {
+      const logoData = await loadImageAsDataUrl(LOGO_URL);
+      doc.addImage(logoData, "PNG", 10, 8, 28, 18);
+    } catch (error) {
+      console.warn("No se pudo cargar el logo para el PDF", error);
+    }
+
     doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
-    doc.text(header.empresa || "Empresa", 10, 14);
+    doc.text(header.empresa || "Empresa", 44, 16);
 
-    doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
     doc.text(`Fecha: ${header.fecha || ""}`, pageWidth - 10, 14, { align: "right" });
-    doc.text(header.listaTitulo || "Cotización", 10, 24);
-    doc.text(`Cliente: ${header.cliente || ""}`, 10, 30);
+    doc.text(header.listaTitulo || "Cotización", 10, 30);
+    doc.text(`Cliente: ${header.cliente || ""}`, 10, 36);
 
     autoTable(doc, {
-      startY: 38,
+      startY: 44,
       margin: { left: 10, right: 10 },
       theme: "grid",
-      styles: { fontSize: 8, cellPadding: 1.6, lineColor: [80, 80, 80], lineWidth: 0.2 },
-      headStyles: { fillColor: [44, 62, 80], halign: "center" },
-      bodyStyles: { valign: "middle" },
+      styles: {
+        fontSize: 8,
+        cellPadding: 1.6,
+        lineColor: [80, 80, 80],
+        lineWidth: 0.2,
+      },
+      headStyles: {
+        fillColor: [44, 62, 80],
+        halign: "center",
+      },
+      bodyStyles: {
+        valign: "middle",
+      },
       head: [[
-        "PRODUCTO", "CLASE", "DESCRIPCION", "DOSIS", "AER Q", "DC Q",
-        "Contado 30 días", "Canje Julio", "U$S Julio"
+        "PRODUCTO",
+        "CLASE",
+        "DESCRIPCION",
+        "DOSIS",
+        "AER Q",
+        "DC Q",
+        "Contado 30 días",
+        "Canje Julio",
+        "U$S Julio",
       ]],
       body: items.map((row) => [
         safeText(row.producto),
@@ -278,6 +306,17 @@ export default function App() {
         formatMoney(row.canje_julio),
         formatMoney(row.usd_julio),
       ]),
+      columnStyles: {
+        0: { cellWidth: 52 },
+        1: { cellWidth: 22 },
+        2: { cellWidth: 36 },
+        3: { cellWidth: 16, halign: "center" },
+        4: { cellWidth: 14, halign: "center" },
+        5: { cellWidth: 14, halign: "center" },
+        6: { cellWidth: 26, halign: "right" },
+        7: { cellWidth: 22, halign: "right" },
+        8: { cellWidth: 22, halign: "right" },
+      },
     });
 
     const lastY = doc.lastAutoTable?.finalY ?? 50;
@@ -310,12 +349,13 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="container">
-        <div className="top-grid">
-          <SectionCard title="Cotizador de insumos">
+        <div className="top-grid-single">
+          <Card title="Cotizador de insumos">
             <div className="form-grid two-cols">
               <Field label="Empresa">
                 <input value={header.empresa} disabled />
               </Field>
+
               <Field label="Fecha">
                 <input
                   type="date"
@@ -323,72 +363,38 @@ export default function App() {
                   onChange={(e) => setHeader({ ...header, fecha: e.target.value })}
                 />
               </Field>
+
               <Field label="Cliente">
                 <input
                   value={header.cliente}
                   onChange={(e) => setHeader({ ...header, cliente: e.target.value })}
                 />
               </Field>
+
               <Field label="Título">
                 <input value={header.listaTitulo} disabled />
               </Field>
-              <div className="span-2">
-                <Field label="Observaciones">
-                  <textarea
-                    rows={4}
-                    value={header.observaciones}
-                    onChange={(e) => setHeader({ ...header, observaciones: e.target.value })}
-                  />
-                </Field>
-              </div>
-            </div>
-          </SectionCard>
 
-          <SectionCard
-            title="Base de artículos"
-            actions={
-              <>
-                <button className="btn" onClick={loadFromSheet} disabled={loadingSheet}>
-                  {loadingSheet ? "Conectando..." : "Conectar hoja"}
-                </button>
-                <button className="btn btn-secondary" onClick={resetSample}>
-                  Restaurar ejemplo
-                </button>
-              </>
-            }
-          >
-            <div className="stack">
-              <Field label="URL de Google Sheet">
-                <input
-                  placeholder="Pegá el link de la hoja"
-                  value={sheetUrl}
-                  onChange={(e) => setSheetUrl(e.target.value)}
+              <Field label="Observaciones" className="span-2">
+                <textarea
+                  rows={4}
+                  value={header.observaciones}
+                  onChange={(e) => setHeader({ ...header, observaciones: e.target.value })}
                 />
               </Field>
-
-              <div className="info-box">
-                <strong>Estado</strong>
-                <div>{sheetStatus}</div>
-                <div className="muted">Artículos disponibles: {productOptions.length}</div>
-              </div>
-
-              <div className="info-box">
-                <strong>Formato aceptado</strong>
-                <div>1. Una hoja simple con los artículos solo en la columna A.</div>
-                <div>La app usa esa columna como base de datos del campo Producto.</div>
-                <div>2. Cada fila corresponde a un artículo distinto.</div>
-              </div>
             </div>
-          </SectionCard>
+
+            <div className="inline-status">
+              <span className="status-dot" />
+              <span>{loadingSheet ? "Actualizando base de artículos..." : sheetStatus}</span>
+            </div>
+          </Card>
         </div>
 
-        <div className="tabs-bar">
-          <div className="tab active">Agregar +</div>
-          <div className="tab">Cotización</div>
-        </div>
+        <div className="section-title">Agregar artículo</div>
 
         <div className="main-grid">
-          <SectionCard title="Agregar artículo">
+          <Card title="Carga">
             <div className="form-grid five-cols">
               {manualFields.map(([field, label]) => (
                 <Field key={field} label={label}>
@@ -398,7 +404,7 @@ export default function App() {
                         value={manual.producto}
                         list="productos-sheet"
                         onFocus={() => {
-                          if (sheetUrl.trim()) void loadFromSheet();
+                          if (products.length === 0) void loadFromSheet();
                         }}
                         onChange={(e) => {
                           const value = e.target.value;
@@ -407,7 +413,9 @@ export default function App() {
                           const exactMatch = products.find(
                             (p) => safeText(p.producto).toLowerCase() === safeText(value).toLowerCase()
                           );
-                          if (exactMatch) applyProductByName(exactMatch.producto);
+                          if (exactMatch) {
+                            applyProductByName(exactMatch.producto);
+                          }
                         }}
                       />
                       <datalist id="productos-sheet">
@@ -424,14 +432,17 @@ export default function App() {
                   )}
                 </Field>
               ))}
+
               <div className="span-5">
-                <button className="btn" onClick={addManualProduct}>Agregar a cotización</button>
+                <button className="btn" onClick={addManualProduct}>
+                  Agregar a cotización
+                </button>
               </div>
             </div>
-          </SectionCard>
+          </Card>
 
           <div className="preview-layout">
-            <SectionCard
+            <Card
               title="Vista previa"
               actions={
                 <button className="btn" onClick={exportPdf} disabled={items.length === 0}>
@@ -441,14 +452,29 @@ export default function App() {
             >
               <div className="sheet-preview">
                 <div className="sheet-header">
-                  <div className="brand">{header.empresa || "Empresa"}</div>
-                  <div className="sheet-title">Cotización de Insumos</div>
+                  <div className="sheet-brand-wrap">
+                    <img
+                      src={LOGO_URL}
+                      alt="Grupo Quemu"
+                      className="sheet-logo"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                    <div className="brand-text">{header.empresa || "Empresa"}</div>
+                  </div>
+
+                  <div className="sheet-title">{header.listaTitulo}</div>
                   <div className="sheet-date">{header.fecha || ""}</div>
                 </div>
-                <div className="sheet-client">{header.cliente || "Cliente"}</div>
+
+                <div className="sheet-client-row">
+                  <span className="sheet-client-label">Cliente:</span>
+                  <span className="sheet-client-value">{header.cliente || "Sin cliente"}</span>
+                </div>
 
                 <div className="table-wrap">
-                  <table>
+                  <table className="quote-table">
                     <thead>
                       <tr>
                         <th>PRODUCTO</th>
@@ -457,15 +483,17 @@ export default function App() {
                         <th>DOSIS</th>
                         <th>AER Q</th>
                         <th>DC Q</th>
-                        <th>Contado 30 días</th>
-                        <th>Canje Julio</th>
-                        <th>U$S Julio</th>
+                        <th className="num">Contado 30 días</th>
+                        <th className="num">Canje Julio</th>
+                        <th className="num">U$S Julio</th>
                       </tr>
                     </thead>
                     <tbody>
                       {items.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="empty-row">Agregá productos desde Agregar +.</td>
+                          <td colSpan={9} className="empty-row">
+                            Agregá productos para ver la cotización.
+                          </td>
                         </tr>
                       ) : (
                         items.map((row) => (
@@ -487,13 +515,17 @@ export default function App() {
                 </div>
 
                 <div className="sheet-footer">
-                  {header.observaciones ? <div><strong>Observaciones:</strong> {header.observaciones}</div> : null}
+                  {header.observaciones ? (
+                    <div>
+                      <strong>Observaciones:</strong> {header.observaciones}
+                    </div>
+                  ) : null}
                   {header.monedaNota ? <div>{header.monedaNota}</div> : null}
                 </div>
               </div>
-            </SectionCard>
+            </Card>
 
-            <SectionCard title="Productos incluidos">
+            <Card title="Productos incluidos">
               <div className="stack">
                 {items.length === 0 ? (
                   <div className="muted">Todavía no hay productos en la cotización.</div>
@@ -505,7 +537,9 @@ export default function App() {
                           <div className="item-title">{item.producto}</div>
                           <div className="muted">Artículo cargado</div>
                         </div>
-                        <button className="btn btn-danger" onClick={() => removeItem(item.id)}>Quitar</button>
+                        <button className="btn btn-danger" onClick={() => removeItem(item.id)}>
+                          Quitar
+                        </button>
                       </div>
 
                       <div className="form-grid two-cols">
@@ -531,7 +565,7 @@ export default function App() {
                   ))
                 )}
               </div>
-            </SectionCard>
+            </Card>
           </div>
         </div>
       </div>
