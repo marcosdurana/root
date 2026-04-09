@@ -238,10 +238,6 @@ export default function App() {
     setManual(EMPTY_MANUAL);
   }
 
-  function removeItem(id) {
-    setItems((prev) => prev.filter((item) => item.id !== id));
-  }
-
   async function exportPdf() {
     const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
