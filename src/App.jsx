@@ -262,7 +262,7 @@ doc.setFontSize(11);
 doc.text(`Cliente: ${header.cliente || ""}`, 10, 34);
 
     autoTable(doc, {
-      startY: 36,
+      startY: 42,
       margin: { left: 10, right: 10 },
       theme: "grid",
       styles: {
