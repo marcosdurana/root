@@ -445,17 +445,7 @@ export default function App() {
           >
             <div className="sheet-preview">
               <div className="sheet-header">
-                <div className="sheet-brand-wrap">
-                  <img
-                    src={LOGO_URL}
-                    alt="Grupo Quemu"
-                    className="sheet-logo"
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
-                  />
-                </div>
-
+                <div className="sheet-brand-wrap" />
                 <div className="sheet-title">{header.listaTitulo}</div>
                 <div className="sheet-date">{header.fecha || ""}</div>
               </div>
