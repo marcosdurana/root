@@ -249,17 +249,17 @@ export default function App() {
       console.warn("No se pudo cargar el logo para el PDF", error);
     }
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.text(`Fecha: ${header.fecha || ""}`, pageWidth - 10, 14, { align: "right" });
+   doc.setFont("helvetica", "bold");
+doc.setFontSize(10);
+doc.text(`Fecha: ${header.fecha || ""}`, pageWidth - 10, 14, { align: "right" });
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text(header.listaTitulo || "Cotización de Insumos", pageWidth / 2, 18, { align: "center" });
+doc.setFont("helvetica", "bold");
+doc.setFontSize(16);
+doc.text(header.listaTitulo || "Cotización de Insumos", pageWidth / 2, 22, { align: "center" });
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(11);
-    doc.text(`Cliente: ${header.cliente || ""}`, 10, 30);
+doc.setFont("helvetica", "normal");
+doc.setFontSize(11);
+doc.text(`Cliente: ${header.cliente || ""}`, 10, 34);
 
     autoTable(doc, {
       startY: 36,
