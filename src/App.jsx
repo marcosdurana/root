@@ -244,7 +244,7 @@ export default function App() {
 
     try {
       const logoData = await loadImageAsDataUrl(LOGO_URL);
-      doc.addImage(logoData, "PNG", 10, 8, 22, 14);
+      doc.addImage(logoData, "PNG", 10, 6, 36, 22);
     } catch (error) {
       console.warn("No se pudo cargar el logo para el PDF", error);
     }
